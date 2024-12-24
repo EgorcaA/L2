@@ -1,38 +1,111 @@
-package main
+package cut
 
 /*
-=== Or channel ===
+=== Утилита cut ===
 
-Реализовать функцию, которая будет объединять один или более done каналов в single канал если один из его составляющих каналов закроется.
-Одним из вариантов было бы очевидно написать выражение при помощи select, которое бы реализовывало эту связь,
-однако иногда неизестно общее число done каналов, с которыми вы работаете в рантайме.
-В этом случае удобнее использовать вызов единственной функции, которая, приняв на вход один или более or каналов, реализовывала весь функционал.
+Принимает STDIN, разбивает по разделителю (TAB) на колонки, выводит запрошенные
 
-Определение функции:
-var or func(channels ...<- chan interface{}) <- chan interface{}
+Поддержать флаги:
+-f - "fields" - выбрать поля (колонки)
+-d - "delimiter" - использовать другой разделитель
+-s - "separated" - только строки с разделителем
 
-Пример использования функции:
-sig := func(after time.Duration) <- chan interface{} {
-	c := make(chan interface{})
-	go func() {
-		defer close(c)
-		time.Sleep(after)
-}()
-return c
-}
-
-start := time.Now()
-<-or (
-	sig(2*time.Hour),
-	sig(5*time.Minute),
-	sig(1*time.Second),
-	sig(1*time.Hour),
-	sig(1*time.Minute),
-)
-
-fmt.Printf(“fone after %v”, time.Since(start))
+Программа должна проходить все тесты. Код должен проходить проверки go vet и golint.
 */
 
-func main() {
+import (
+	"bufio"
+	"flag"
+	"fmt"
+	"io"
+	"os"
+	"strings"
+)
 
+// Options задает параметры утилиты
+type Options struct {
+	fields    []int  // Колонки для выбора
+	delimiter string // Разделитель
+	separated bool   // Только строки с разделителем
+}
+
+func main() {
+	// Определение флагов
+	fields := flag.String("f", "", "выбрать поля (колонки), указать через запятую")
+	delimiter := flag.String("d", "\t", "использовать другой разделитель (по умолчанию TAB)")
+	separated := flag.Bool("s", false, "только строки с разделителем")
+
+	flag.Parse()
+
+	// Проверка, указаны ли колонки
+	if *fields == "" {
+		fmt.Fprintln(os.Stderr, "Error: -f flag is required")
+		os.Exit(1)
+	}
+
+	// Разбор колонок
+	fieldIndexes, err := parseFields(*fields)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error parsing fields: %v\n", err)
+		os.Exit(1)
+	}
+
+	options := Options{
+		fields:    fieldIndexes,
+		delimiter: *delimiter,
+		separated: *separated,
+	}
+
+	// Чтение из STDIN
+	if err := cut(os.Stdin, os.Stdout, options); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func parseFields(fields string) ([]int, error) {
+	parts := strings.Split(fields, ",")
+	var result []int
+	for _, part := range parts {
+		var index int
+		_, err := fmt.Sscanf(part, "%d", &index)
+		if err != nil || index <= 0 {
+			return nil, fmt.Errorf("invalid field: %s", part)
+		}
+		result = append(result, index-1) // Преобразуем к 0-индексации
+	}
+	return result, nil
+}
+
+func cut(input io.Reader, output io.Writer, options Options) error {
+	scanner := bufio.NewScanner(input)
+	writer := bufio.NewWriter(output)
+	defer writer.Flush()
+
+	for scanner.Scan() {
+		line := scanner.Text()
+
+		// Разделение строки
+		columns := strings.Split(line, options.delimiter)
+
+		// Фильтрация строк без разделителя
+		if options.separated && len(columns) < 2 {
+			continue
+		}
+
+		// Выбор указанных колонок
+		var selected []string
+		for _, index := range options.fields {
+			if index < len(columns) {
+				selected = append(selected, columns[index])
+			}
+		}
+
+		// Печать результата
+		if len(selected) > 0 {
+			fmt.Fprintln(writer, strings.Join(selected, options.delimiter))
+		}
+	}
+
+	return scanner.Err()
 }

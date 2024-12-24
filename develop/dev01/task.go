@@ -1,5 +1,12 @@
 package main
 
+import (
+	"fmt"
+	"os"
+
+	"github.com/beevik/ntp"
+)
+
 /*
 === Базовая задача ===
 
@@ -14,4 +21,12 @@ package main
 
 func main() {
 
+	time, err := ntp.Time("time.google.com")
+	if err != nil {
+		// Вывод ошибки в STDERR
+		fmt.Fprintf(os.Stderr, "Ошибка получения времени: %v\n", err)
+		os.Exit(1) // Возвращаем ненулевой код выхода
+	}
+
+	fmt.Printf("Точное время: %v\n", time)
 }
